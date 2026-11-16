@@ -9,37 +9,52 @@ from sacremoses_rs import MosesTokenizer, MosesDetokenizer, MosesPunctNormalizer
 
 tok = MosesTokenizer("en")
 tok.tokenize("Hello, world... it's 5,300 dollars.", return_str=True)
-tok.tokenize_many(list_of_sentences)          # extra: whole batch in one call
+
+# batch API (extra): one call, all CPU cores, GIL released, order preserved
+tok.tokenize_many(list_of_sentences)
+MosesPunctNormalizer("en").normalize_many(list_of_sentences)
+MosesDetokenizer("en").detokenize_many(list_of_token_lists)
 
 # or speed up everything that already uses sacremoses (CLI, truecaser, ...)
 import sacremoses_rs; sacremoses_rs.patch()
 ```
 
-## Speed (20,000 lines / 1.7 MB of English prose, Python 3.13, one core)
+The classes subclass the originals, so every option and attribute keeps working.
+Requires `sacremoses>=0.2.0`.
 
-| step                         | python  | rust    | speedup |
-|------------------------------|---------|---------|---------|
-| tokenize (return_str)        | 1.85 s  | 0.10 s  | 18x     |
-| tokenize (token list)        | 2.40 s  | 0.12 s  | 20x     |
-| tokenize (batch API)         | 2.40 s  | 0.07 s  | 35x     |
-| tokenize (aggressive dashes) | 2.27 s  | 0.10 s  | 22x     |
-| punctuation normalize        | 0.48 s  | 0.08 s  | 6x      |
-| detokenize                   | 0.30 s  | 0.08 s  | 4x      |
+## Speed
 
-Reproduce: `python3 -I bench/bench.py <sacremoses checkout> <corpus.txt> 20000`
+20,000 lines / 1.7 MB of English prose, Python 3.13, three runs, one core unless noted
+(the batch rows use both cores of the 2-thread test machine; more cores scale further):
+
+| step                         | speedup vs. python |
+|------------------------------|--------------------|
+| tokenize (`return_str=True`) | 28-30x             |
+| tokenize (token list)        | 18-19x             |
+| tokenize (aggressive dashes) | 27-30x             |
+| tokenize (batch API)         | 50-55x             |
+| punctuation normalize        | 4-6x               |
+| punctuation normalize (batch)| 6-7x               |
+| detokenize                   | 4-5x               |
+| detokenize (batch)           | 5-6x               |
+
+Reproduce: `python -I bench/bench.py <sacremoses checkout> <corpus.txt> 20000`
 
 ## How it was verified
 
 * `tests/diff_test.py`: differential test, original vs. Rust, outputs must be identical.
-  1.2 million cases: a real corpus plus adversarial fuzz (unicode whitespace, control
-  characters, surrogate-free exotic scripts, the library's own marker strings, ...)
-  across 19 languages, all option combinations of the normalizer, and the detokenizer.
-  Result: 0 mismatches.
-* sacremoses' own test suite with `patch()` applied: same results as unpatched
-  (32 pass; the 4 truecaser tests need network downloads and fail identically
-  without the patch).
-* The differential run found nothing, but the official suite found one real bug
-  in `patch()` (infinite recursion); it is fixed and covered now.
+  About 1.2 million cases per run: a real corpus plus adversarial fuzz (unicode whitespace,
+  control characters, exotic scripts, the library's own marker strings, ...) across 19
+  languages, all option combinations of the normalizer, the detokenizer, and the batch APIs.
+  Result: 0 mismatches against both sacremoses 0.2.0 (PyPI) and the current git HEAD.
+* `tests/test_basic.py`: 54 self-contained pytest tests (golden outputs, fallbacks,
+  batch order, thread safety, `patch()`).
+* sacremoses' own test suite with `patch()` applied gives the same results as without
+  it (the truecaser tests that need network downloads fail identically either way).
+* `cargo fmt` and `cargo clippy -D warnings` are clean.
+
+sacremoses 0.1.x is not supported: its handling of inputs that literally contain the
+text `DOTMULTI` differs from 0.2.0 (a quirk upstream fixed).
 
 ## What is NOT accelerated (falls back to the original Python, same results)
 
@@ -52,15 +67,18 @@ Reproduce: `python3 -I bench/bench.py <sacremoses checkout> <corpus.txt> 20000`
 
 * Changing `NONBREAKING_PREFIXES` / `NUMERIC_ONLY_PREFIXES` of an existing tokenizer is
   noticed when the list object or its length changes, not when an item is edited in place.
-* The normalizer uses the Rust `regex` crate for `\d` and `\p{C}`; for code points that
-  were newly assigned in a recent Unicode version, Python and Rust may disagree.
-* Only built and tested on Linux x86-64 / Python 3.13 so far.
+* The normalizer uses the Rust `regex` crate for `\d` and `\p{C}`; for code points newly
+  assigned in a recent Unicode version, Python and Rust may disagree.
+* Everything above was measured on Linux x86-64 with Python 3.13. The GitHub Actions
+  workflows (`.github/workflows`) that test and build Linux, macOS and Windows wheels
+  are written but have not been run yet.
 
 ## Build
 
 ```
-pip install maturin sacremoses
+pip install maturin "sacremoses>=0.2.0"
 maturin build --release -o dist && pip install dist/*.whl
+pytest tests/test_basic.py
 ```
 
 ## License / attribution

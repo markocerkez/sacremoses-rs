@@ -114,6 +114,20 @@ for tl in [[], [""], [" "], ("a", "b"), (w for w in ["x", "y"]), ["a", 1], "abc"
     if not hasattr(tl, "__next__") and not isinstance(tl, tuple):
         check("detok[odd]", ref, got, repr(tl))
 
+# ---------------- batch APIs (parallel) ----------------
+for lang in ["en", "fr", "zh"]:
+    t = rs.MosesTokenizer(lang=lang)
+    for agg, esc in [(False, True), (True, False)]:
+        check(f"batch-tok[{lang}]", [run(PyT.tokenize, t, x, aggressive_dash_splits=agg, return_str=True, escape=esc)[1] for x in ntexts],
+              t.tokenize_many(ntexts, aggressive_dash_splits=agg, escape=esc), (lang, agg, esc))
+    d = rs.MosesDetokenizer(lang)
+    tls = [t.tokenize(x) for x in lines[:3000]] + [x.split(" ") for x in fuzz_texts[:5000]]
+    check(f"batch-detok[{lang}]", [PyD.tokenize(d, tl) for tl in tls], d.detokenize_many(tls), lang)
+for kw in [dict(), dict(pre_replace_unicode_punct=True, post_remove_control_chars=True)]:
+    n = rs.MosesPunctNormalizer("en", **kw)
+    check("batch-norm", [PyN.normalize(n, x) for x in ntexts], n.normalize_many(ntexts), kw)
+check("batch-empty", ([], [], []), (rs.MosesTokenizer("en").tokenize_many([]), rs.MosesPunctNormalizer("en").normalize_many([]), rs.MosesDetokenizer("en").detokenize_many([])), "empty")
+
 # ---------------- report ----------------
 total = sum(counts.values())
 bad = sum(len(v) for v in fails.values())

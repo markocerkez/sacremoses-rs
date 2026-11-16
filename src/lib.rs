@@ -1,3 +1,7 @@
+// The detokenizer's branches are kept one-to-one with the reference implementation
+// (same order, same bodies), which keeps the port easy to audit against upstream.
+#![allow(clippy::if_same_then_else)]
+
 //! Rust fast paths for sacremoses (Moses tokenizer / detokenizer / punctuation normalizer).
 //!
 //! This is a port of the algorithms in https://github.com/hplt-project/sacremoses
@@ -7,6 +11,7 @@
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+use rayon::prelude::*;
 use regex::Regex;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -176,9 +181,8 @@ impl Tokenizer {
     fn pad_not_alnum(&self, s: &str) -> String {
         let mut out = String::with_capacity(s.len() + s.len() / 4);
         for c in s.chars() {
-            let keep = self.alnum.has(c)
-                || is_py_space(c)
-                || matches!(c, '.' | '\'' | '`' | ',' | '-');
+            let keep =
+                self.alnum.has(c) || is_py_space(c) || matches!(c, '.' | '\'' | '`' | ',' | '-');
             if keep {
                 out.push(c);
             } else {
@@ -315,61 +319,106 @@ impl Tokenizer {
         let n = &self.isn;
         match self.lang.as_str() {
             "en" => {
-                let s = sub3(&s, '\'', |x, y| !a.has(x) && !a.has(y), |x, y, o| {
-                    o.push(x);
-                    o.push_str(" ' ");
-                    o.push(y);
-                })
+                let s = sub3(
+                    &s,
+                    '\'',
+                    |x, y| !a.has(x) && !a.has(y),
+                    |x, y, o| {
+                        o.push(x);
+                        o.push_str(" ' ");
+                        o.push(y);
+                    },
+                )
                 .into_owned();
-                let s = sub3(&s, '\'', |x, y| !a.has(x) && !n.has(x) && a.has(y), |x, y, o| {
-                    o.push(x);
-                    o.push_str(" ' ");
-                    o.push(y);
-                })
+                let s = sub3(
+                    &s,
+                    '\'',
+                    |x, y| !a.has(x) && !n.has(x) && a.has(y),
+                    |x, y, o| {
+                        o.push(x);
+                        o.push_str(" ' ");
+                        o.push(y);
+                    },
+                )
                 .into_owned();
-                let s = sub3(&s, '\'', |x, y| a.has(x) && !a.has(y), |x, y, o| {
-                    o.push(x);
-                    o.push_str(" ' ");
-                    o.push(y);
-                })
+                let s = sub3(
+                    &s,
+                    '\'',
+                    |x, y| a.has(x) && !a.has(y),
+                    |x, y, o| {
+                        o.push(x);
+                        o.push_str(" ' ");
+                        o.push(y);
+                    },
+                )
                 .into_owned();
-                let s = sub3(&s, '\'', |x, y| a.has(x) && a.has(y), |x, y, o| {
-                    o.push(x);
-                    o.push_str(" '");
-                    o.push(y);
-                })
+                let s = sub3(
+                    &s,
+                    '\'',
+                    |x, y| a.has(x) && a.has(y),
+                    |x, y, o| {
+                        o.push(x);
+                        o.push_str(" '");
+                        o.push(y);
+                    },
+                )
                 .into_owned();
-                sub3(&s, '\'', |x, y| n.has(x) && y == 's', |x, y, o| {
-                    o.push(x);
-                    o.push_str(" '");
-                    o.push(y);
-                })
+                sub3(
+                    &s,
+                    '\'',
+                    |x, y| n.has(x) && y == 's',
+                    |x, y, o| {
+                        o.push(x);
+                        o.push_str(" '");
+                        o.push(y);
+                    },
+                )
                 .into_owned()
             }
             "fr" | "it" => {
-                let s = sub3(&s, '\'', |x, y| !a.has(x) && !a.has(y), |x, y, o| {
-                    o.push(x);
-                    o.push_str(" ' ");
-                    o.push(y);
-                })
+                let s = sub3(
+                    &s,
+                    '\'',
+                    |x, y| !a.has(x) && !a.has(y),
+                    |x, y, o| {
+                        o.push(x);
+                        o.push_str(" ' ");
+                        o.push(y);
+                    },
+                )
                 .into_owned();
-                let s = sub3(&s, '\'', |x, y| !a.has(x) && a.has(y), |x, y, o| {
-                    o.push(x);
-                    o.push_str(" ' ");
-                    o.push(y);
-                })
+                let s = sub3(
+                    &s,
+                    '\'',
+                    |x, y| !a.has(x) && a.has(y),
+                    |x, y, o| {
+                        o.push(x);
+                        o.push_str(" ' ");
+                        o.push(y);
+                    },
+                )
                 .into_owned();
-                let s = sub3(&s, '\'', |x, y| a.has(x) && !a.has(y), |x, y, o| {
-                    o.push(x);
-                    o.push_str(" ' ");
-                    o.push(y);
-                })
+                let s = sub3(
+                    &s,
+                    '\'',
+                    |x, y| a.has(x) && !a.has(y),
+                    |x, y, o| {
+                        o.push(x);
+                        o.push_str(" ' ");
+                        o.push(y);
+                    },
+                )
                 .into_owned();
-                sub3(&s, '\'', |x, y| a.has(x) && a.has(y), |x, y, o| {
-                    o.push(x);
-                    o.push_str("' ");
-                    o.push(y);
-                })
+                sub3(
+                    &s,
+                    '\'',
+                    |x, y| a.has(x) && a.has(y),
+                    |x, y, o| {
+                        o.push(x);
+                        o.push_str("' ");
+                        o.push(y);
+                    },
+                )
                 .into_owned()
             }
             _ => s.replace('\'', " ' "),
@@ -475,8 +524,8 @@ impl Tokenizer {
         nonbreaking_prefixes: Vec<String>,
         numeric_only_prefixes: Vec<String>,
     ) -> PyResult<Self> {
-        let multidot_restore = Regex::new(r"(?:DOT)+MULTI")
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let multidot_restore =
+            Regex::new(r"(?:DOT)+MULTI").map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(Tokenizer {
             lang,
             alnum: CharSet::new(is_alnum),
@@ -493,21 +542,30 @@ impl Tokenizer {
         self.run(text, aggressive_dash_splits, escape)
     }
 
-    fn tokenize_split(&self, text: &str, aggressive_dash_splits: bool, escape: bool) -> Vec<String> {
+    fn tokenize_split(
+        &self,
+        text: &str,
+        aggressive_dash_splits: bool,
+        escape: bool,
+    ) -> Vec<String> {
         let s = self.run(text, aggressive_dash_splits, escape);
         py_split(&s).into_iter().map(|t| t.to_string()).collect()
     }
 
+    /// Batch tokenization: GIL released, work spread over all cores (order preserved).
     fn tokenize_many(
         &self,
+        py: Python<'_>,
         texts: Vec<String>,
         aggressive_dash_splits: bool,
         escape: bool,
     ) -> Vec<String> {
-        texts
-            .iter()
-            .map(|t| self.run(t, aggressive_dash_splits, escape))
-            .collect()
+        py.detach(|| {
+            texts
+                .par_iter()
+                .map(|t| self.run(t, aggressive_dash_splits, escape))
+                .collect()
+        })
     }
 }
 
@@ -638,8 +696,9 @@ impl Normalizer {
         py_strip(&cur).to_string()
     }
 
-    fn normalize_many(&self, texts: Vec<String>) -> Vec<String> {
-        texts.iter().map(|t| self.normalize(t)).collect()
+    /// Batch normalization: GIL released, work spread over all cores (order preserved).
+    fn normalize_many(&self, py: Python<'_>, texts: Vec<String>) -> Vec<String> {
+        py.detach(|| texts.par_iter().map(|t| self.normalize(t)).collect())
     }
 }
 
@@ -677,12 +736,18 @@ impl Detokenizer {
     fn is_punct(tok: &str) -> bool {
         !tok.is_empty()
             && tok.chars().all(|c| {
-                matches!(c, ',' | '.' | '?' | '!' | ':' | ';' | '\\' | '%' | '}' | ']' | ')')
+                matches!(
+                    c,
+                    ',' | '.' | '?' | '!' | ':' | ';' | '\\' | '%' | '}' | ']' | ')'
+                )
             })
     }
 
     fn is_open_quote(tok: &str) -> bool {
-        !tok.is_empty() && tok.chars().all(|c| matches!(c, '\'' | '"' | '„' | '“' | '`'))
+        !tok.is_empty()
+            && tok
+                .chars()
+                .all(|c| matches!(c, '\'' | '"' | '„' | '“' | '`'))
     }
 
     fn is_english_contraction(&self, tok: &str) -> bool {
@@ -696,7 +761,10 @@ impl Detokenizer {
     }
 
     fn starts_with_alpha(&self, tok: &str) -> bool {
-        tok.chars().next().map(|c| self.alpha.has(c)).unwrap_or(false)
+        tok.chars()
+            .next()
+            .map(|c| self.alpha.has(c))
+            .unwrap_or(false)
     }
 
     fn all_ascii_digits(tok: &str) -> bool {
@@ -873,7 +941,8 @@ impl Detokenizer {
         cjk_ranges: Vec<(u32, u32)>,
         finnish_pattern: &str,
     ) -> PyResult<Self> {
-        let fi_re = Regex::new(finnish_pattern).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let fi_re =
+            Regex::new(finnish_pattern).map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(Detokenizer {
             lang,
             alpha: CharSet::new(is_alpha),
@@ -886,6 +955,17 @@ impl Detokenizer {
     /// Returns None when the caller must fall back to the Python implementation.
     fn detokenize(&self, tokens: Vec<String>, unescape: bool) -> Option<String> {
         self.run(&tokens, unescape)
+    }
+
+    /// Batch detokenization (GIL released, all cores). Items that need the Python
+    /// fallback come back as None, in place.
+    fn detokenize_many(
+        &self,
+        py: Python<'_>,
+        batch: Vec<Vec<String>>,
+        unescape: bool,
+    ) -> Vec<Option<String>> {
+        py.detach(|| batch.par_iter().map(|t| self.run(t, unescape)).collect())
     }
 }
 

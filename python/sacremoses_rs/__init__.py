@@ -132,6 +132,20 @@ def _fast_detok(self, tokens, return_str=True, unescape=True):
     return res if return_str else res.split()
 
 
+def _detokenize_many(self, batch, return_str=True, unescape=True):
+    """Detokenize many token lists at once. Extra API (not in sacremoses)."""
+    batch = [t if isinstance(t, list) else list(t) for t in batch]
+    try:
+        res = _core_detok(self).detokenize_many(batch, bool(unescape))
+    except _FALLBACK:
+        res = [None] * len(batch)
+    return [
+        _fast_detok(self, tl, return_str, unescape) if r is None
+        else (r if return_str else r.split())
+        for tl, r in zip(batch, res)
+    ]
+
+
 # ---------------------------------------------------------------------- normalizer
 def _core_norm(self):
     rs = self.__dict__.get("_rs")
@@ -172,6 +186,7 @@ class MosesTokenizer(_PyTokenizer):
 
 class MosesDetokenizer(_PyDetokenizer):
     tokenize = _fast_detok
+    detokenize_many = _detokenize_many
 
 
 class MosesPunctNormalizer(_PyNormalizer):
@@ -188,5 +203,6 @@ def patch():
     _PyTokenizer.tokenize = _fast_tokenize
     _PyTokenizer.tokenize_many = _tokenize_many
     _PyDetokenizer.tokenize = _fast_detok
+    _PyDetokenizer.detokenize_many = _detokenize_many
     _PyNormalizer.normalize = _fast_normalize
     _PyNormalizer.normalize_many = _normalize_many

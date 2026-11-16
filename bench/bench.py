@@ -35,10 +35,13 @@ b2, got = best(lambda: rt.tokenize_many(normed)); assert toks == got
 rows.append(("tokenize (batch)", a, b2))
 a, det = best(lambda: [pd.detokenize(x) for x in tl]); b, got = best(lambda: [rd.detokenize(x) for x in tl]); assert det == got
 rows.append(("detokenize", a, b))
+b2, got = best(lambda: rd.detokenize_many(tl)); assert det == got
+rows.append(("detokenize (batch)", a, b2))
 a, _ = best(lambda: [pt.tokenize(l, aggressive_dash_splits=True, return_str=True) for l in normed]); b, _ = best(lambda: [rt.tokenize(l, aggressive_dash_splits=True, return_str=True) for l in normed])
 rows.append(("tokenize (aggressive dashes)", a, b))
 
-print(f"{len(lines):,} lines, {mb:.2f} MB, Python {sys.version.split()[0]}\n")
+import os
+print(f"{len(lines):,} lines, {mb:.2f} MB, Python {sys.version.split()[0]}, {os.cpu_count()} CPU threads (batch rows use all of them)\n")
 print(f"{'step':32s} {'python':>9s} {'rust':>9s} {'speedup':>9s}   {'MB/s rust':>9s}")
 for name, a, b in rows:
     print(f"{name:32s} {a:8.3f}s {b:8.3f}s {a/b:8.1f}x   {mb/b:9.1f}")
